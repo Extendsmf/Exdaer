@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+
+message ProcIds {
+    string process_uid = 1;
+    string parent_process_uid = 2;
+    uint32 pid = 3;
+    uint32 ppid = 4;
+}
+
+message BinaryData {
+    string image_path = 1;
+    string command_line = 2;
+    string current_working_directory = 3;
+    string sha256 = 4;
+}
+
+message UserContext {
+    string username = 1;
+    string sid = 2;
+    uint32 uid = 3;
+}
+
+enum EventType {
+    PROCESS_EVENT_TYPE_UNSPECIFIED = 0;
+    PROCESS_EVENT_TYPE_START = 1;
+    PROCESS_EVENT_TYPE_STOP = 2;
+}
+
+message ProcessEvent {
+    int64 sequence_id = 1;
+    int64 timestamp_epoch_ms = 2;
+    EventType type = 3;
+    ProcIds all_ids = 4;
+    BinaryData bin_data = 5;
+    UserContext usr_context = 6;
+}
+
+message TelemetryBatch {
+    string host_id = 1;
+    string schema_version = 2;
+    uint32 dropped_events_count = 3;
+    repeated ProcessEvent events = 4;
+}
+
+enum IngestStatusCode {
+    INGEST_STATUS_CODE_UNSPECIFIED = 0;
+    INGEST_STATUS_CODE_OK = 1;
+    INGEST_STATUS_CODE_VERSION_MISMATCH = 2;
+    INGEST_STATUS_CODE_RATE_LIMITED = 3;
+    INGEST_STATUS_CODE_INTERNAL_ERROR = 4;
+}
+
+message IngestResponse {
+    IngestStatusCode status = 1;
+    int64 ack_sequence_id = 2;       // Сервер подтверждает: "Я зафиксировал всё до этого sequence_id"
+    string error_message = 3;        // Пустая строка при успехе, либо описание проблемы при сбое
+    repeated string kill_process_uids = 4;
+}
+
+service TelemetryService {
+    rpc SendTelemetry (TelemetryBatch) returns (IngestResponse);
+}

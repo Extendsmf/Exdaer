@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# C++ Build Artifacts
+agent/agent
+*.o
+*.so
+
+# Логи и временные данные
+server/alerts.jsonl
+*.log
+
+# IDE
+.vscode/
+.idea/
