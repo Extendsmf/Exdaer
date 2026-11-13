@@ -9,8 +9,13 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include "linux_collector.hpp"
 #include <csignal>
+
+#ifdef _WIN32
+    #include "windows_collector.hpp"
+#elif defined(__linux__)
+    #include "linux_collector.hpp"
+#endif
 
 void network_consumer_thread(BoundedEventQueue& queue, std::string server_address, std::atomic<bool>& is_running) {
     auto channel = grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials());
@@ -27,7 +32,11 @@ void network_consumer_thread(BoundedEventQueue& queue, std::string server_addres
         if (events.empty() && drops == 0) return;
 
         TelemetryBatch batch;
-        batch.set_host_id("endpoint-linux-01");
+        #ifdef _WIN32
+            batch.set_host_id("endpoint-win-01");
+        #elif defined(__linux__)
+            batch.set_host_id("endpoint-linux-01");
+        #endif
         batch.set_schema_version("1.0");
         batch.set_dropped_events_count(drops);
 
@@ -44,10 +53,12 @@ void network_consumer_thread(BoundedEventQueue& queue, std::string server_addres
             for (const auto& uid : response.kill_process_uids()) {
                 size_t first_dash = uid.find('-');
                 size_t second_dash = uid.find('-', first_dash + 1);
-                std::string pid_str = uid.substr(first_dash + 1, second_dash - first_dash - 1);
+
                 if (first_dash == std::string::npos || second_dash == std::string::npos || second_dash <= first_dash + 1) {
                     continue; // Невалидный формат, пропускаем без паники
                 }
+                std::string pid_str = uid.substr(first_dash + 1, second_dash - first_dash - 1);
+
                 int pid = 0;
 
                 try {
@@ -58,21 +69,25 @@ void network_consumer_thread(BoundedEventQueue& queue, std::string server_addres
 
                 if (pid <= 1 || pid == getpid()) continue;
 
-                kill(pid, SIGKILL);
+            #ifdef _WIN32
+                HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+                if (hProcess != NULL) {
+                    if (TerminateProcess(hProcess, 1)) {
+                        std::cout << "[ACTIVE RESPONSE] Successfully terminated process PID: " << pid << "!\n";
+                    }
+                    CloseHandle(hProcess);
+                }
 
+            #elif defined(__linux__)
                 if (kill(pid, SIGKILL) == 0) {
-                    std::cout << "[ACTIVE RESPONSE] Successfully terminated malicious process PID: " << pid << "!" << std::endl;
+                    std::cout << "[ACTIVE RESPONSE] Successfully terminated process PID: " << pid << "!\n";
                 } else {
-                    if (errno == ESRCH) {
-                        // Процесс уже успел завершиться сам
-                    } else {
+                    if (errno != ESRCH) {
                         std::perror("[ACTIVE RESPONSE] Failed to kill process");
                     }
                 }
-
+            #endif
             }
-        } else {
-            std::cerr << status.error_message() << std::endl;
         }
     };
 
@@ -109,10 +124,18 @@ int main() {
     std::signal(SIGTERM, signal_handler);
     
     BoundedEventQueue queue(100);
-    LinuxProcessCollector collector;
 
+    #ifdef _WIN32
+        WindowsProcessCollector collector;
+    #elif defined(__linux__)
+        LinuxProcessCollector collector;
+    #endif
+    
     std::thread network_worker(network_consumer_thread, std::ref(queue), "localhost:50051", std::ref(is_running));
-    std::thread collector_worker(&LinuxProcessCollector::start, &collector, std::ref(queue), std::ref(is_running));
+
+    std::thread collector_worker([&]() {
+        collector.start(queue, is_running);
+    });
 
 
     collector_worker.join();
