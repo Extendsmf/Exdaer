@@ -9,7 +9,7 @@ import telemetry_pb2_grpc
 
 from engine.engine import DetectionEngine
 from engine.models import ProcessNode
-from engine.rules import OfficeSpawnShellRule, SuspiciousEncodedCommandRule
+from engine.rules import OfficeSpawnShellRule, SuspiciousEncodedCommandRule, SuspiciousTmpExecutionRule
 
 
 
@@ -40,6 +40,7 @@ class TelemetryServer(telemetry_pb2_grpc.TelemetryServiceServicer):
                 engine = DetectionEngine()
                 engine.register_rule(OfficeSpawnShellRule())
                 engine.register_rule(SuspiciousEncodedCommandRule())
+                engine.register_rule(SuspiciousTmpExecutionRule())
                 self.engines[host_id] = engine
 
             return self.engines[host_id]

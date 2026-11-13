@@ -54,7 +54,7 @@ def extract_and_decode_powershell(command_line: str) -> str | None:
 class SuspiciousEncodedCommandRule(BaseRule):
     name = "SUSPICIOUS_ENCODED_POWERSHELL"
     severity="HIGH"
-    mitre_technique="T1059.001/T1027"
+    mitre_technique="T1059.001 / T1027"
     description = "detection of obfuscated PowerShell commands with characteristics of loaders"
 
     CRADLE_KEYWORDS = {"iex", "invoke-expression", "downloadstring", "downloadfile", "webclient", "invoke-webrequest", "iwr"}
@@ -73,3 +73,30 @@ class SuspiciousEncodedCommandRule(BaseRule):
             full_description = f"{self.description} | Payload: {decoded[:120]}..."
             alert = Alert(self.name, self.severity, self.mitre_technique, full_description, node, tree.get_lineage(node.guid))
             return alert
+
+
+class SuspiciousTmpExecutionRule(BaseRule):
+    name = "SUSPICIOUS_EXECUTION_FROM_TMP"
+    severity="HIGH"
+    mitre_technique="T1059 / T1036"
+    description = "Execution of binary or script from a world-writable temporary directory (/tmp, /dev/shm, /var/tmp)"
+
+    TMP_DIRS = ("/tmp/", "/var/tmp/", "/dev/shm/")
+    INTERPRETERS = {"bash", "sh", "dash", "zsh", "python", "python3", "perl", "php"}
+
+
+    def check(self, node: ProcessNode, tree: ProcessTree) -> Alert | None:
+        is_script_in_tmp = (
+            node.image_name.lower() in self.INTERPRETERS 
+            and any(d in node.command_line.lower() for d in self.TMP_DIRS)
+        )
+
+        is_direct_tmp_exec = node.image.lower().startswith(self.TMP_DIRS)
+
+        if  is_direct_tmp_exec or is_script_in_tmp:
+            alert = Alert(self.name, self.severity, self.mitre_technique, self.description, node, tree.get_lineage(node.guid))
+            return alert
+        else:
+            return None
+
+    
