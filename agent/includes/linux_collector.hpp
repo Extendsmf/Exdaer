@@ -17,6 +17,11 @@
 #include <syslog.h>
 #include <poll.h>
 
+struct ProcessStatInfo {
+    pid_t ppid{0};
+    unsigned long long start_time{0};
+};
+
 class LinuxProcessCollector {
     private:
         int sock_fd_{-1};
@@ -127,19 +132,19 @@ class LinuxProcessCollector {
             return res;
         }
 
-        pid_t get_process_ppid(pid_t pid) {
+
+        ProcessStatInfo get_process_stat(pid_t pid) {
             std::string path = "/proc/" + std::to_string(pid) + "/stat";
             std::ifstream file(path);
 
-            if (!file.is_open()) return -1;
+            if (!file.is_open()) return {0, 0};
             std::string line;
             std::getline(file, line);
 
             size_t last_bracket = line.rfind(')');
             if (last_bracket == std::string::npos || last_bracket + 2 >= line.length()) {
-                return -1;
-            }
-
+                return {0, 0};
+            }     
             std::string remaining_part = line.substr(last_bracket + 2);
 
             std::stringstream stream(remaining_part);
@@ -147,12 +152,21 @@ class LinuxProcessCollector {
             std::string ppid_string;
 
             stream >> state >> ppid_string;
-            
-            try {
-                return static_cast<pid_t>(std::stol(ppid_string));
-            } catch (...) {
-                return -1;
+            std::string dummy;
+            unsigned long long start_time = 0;
+
+            for (int i = 5; i < 22; i++) {
+                if (!(stream >> dummy)) return {0, 0};
             }
+
+            if (!(stream >> start_time)) return {0, 0};
+
+            try {
+                pid_t ppid =  static_cast<pid_t>(std::stol(ppid_string));
+                return {ppid, start_time};
+            } catch (...) {
+                return {0, 0};
+            }    
         }
 
         std::optional<ProcessEvent> enrich_process_from_procfs(pid_t pid) {
@@ -162,7 +176,9 @@ class LinuxProcessCollector {
             std::string cmdline = get_process_cmdline(pid);
             if (cmdline.empty()) cmdline = image;
             
-            pid_t ppid = get_process_ppid(pid);
+            auto pid_stat = get_process_stat(pid);
+            auto ppid_stat = get_process_stat(pid_stat.ppid);
+
 
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()
@@ -176,9 +192,15 @@ class LinuxProcessCollector {
             
             auto* ids = event.mutable_all_ids();
             ids->set_pid(pid);
-            ids->set_ppid(ppid);
-            ids->set_process_uid("linux-" + std::to_string(pid) + "-" + std::to_string(now_ms));
-            ids->set_parent_process_uid("linux-" + std::to_string(ppid) + "-parent");
+            ids->set_ppid(pid_stat.ppid);
+            ids->set_process_uid("linux-" + std::to_string(pid) + "-" + std::to_string(pid_stat.start_time));
+
+            if (pid_stat.ppid <= 1 || ppid_stat.start_time == 0) {
+                // Если родитель неизвестен или уже умер до фиксации start_time, оставляем parent_process_uid пустым, чтобы не плодить фантомные ключи
+                ids->set_parent_process_uid("");
+            } else {
+                ids->set_parent_process_uid("linux-" + std::to_string(pid_stat.ppid) + "-" + std::to_string(ppid_stat.start_time));
+            }
             
             auto* bin = event.mutable_bin_data();
             bin->set_image_path(image);
