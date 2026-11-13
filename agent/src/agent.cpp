@@ -41,7 +41,36 @@ void network_consumer_thread(BoundedEventQueue& queue, std::string server_addres
 
         grpc::Status status = stub->SendTelemetry(&context, batch, &response);
         if (status.ok()) {
-            std::cout << response.ack_sequence_id() << std::endl;
+            for (const auto& uid : response.kill_process_uids()) {
+                size_t first_dash = uid.find('-');
+                size_t second_dash = uid.find('-', first_dash + 1);
+                std::string pid_str = uid.substr(first_dash + 1, second_dash - first_dash - 1);
+                if (first_dash == std::string::npos || second_dash == std::string::npos || second_dash <= first_dash + 1) {
+                    continue; // Невалидный формат, пропускаем без паники
+                }
+                int pid = 0;
+
+                try {
+                    pid = std::stoi(pid_str);
+                } catch (...) {
+                    continue; // Если не число — безопасно пропускаем
+                }
+
+                if (pid <= 1 || pid == getpid()) continue;
+
+                kill(pid, SIGKILL);
+
+                if (kill(pid, SIGKILL) == 0) {
+                    std::cout << "[ACTIVE RESPONSE] Successfully terminated malicious process PID: " << pid << "!" << std::endl;
+                } else {
+                    if (errno == ESRCH) {
+                        // Процесс уже успел завершиться сам
+                    } else {
+                        std::perror("[ACTIVE RESPONSE] Failed to kill process");
+                    }
+                }
+
+            }
         } else {
             std::cerr << status.error_message() << std::endl;
         }
@@ -71,6 +100,8 @@ void signal_handler(int) {
 }
 
 int main() {
+
+    std::cout << "Agent started successfully!" << std::endl;
     std::atomic<bool> is_running{true};
     g_running = &is_running;
 
