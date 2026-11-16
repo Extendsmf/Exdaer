@@ -23,7 +23,6 @@ void network_consumer_thread(BoundedEventQueue& queue, std::string server_addres
 
 
     std::vector <ProcessEvent> curr_batch;
-    uint32_t curr_drops = 0;
     size_t max_batch_size = 100;
     std::chrono::milliseconds timeout(200);
     std::chrono::milliseconds last_tmout(10);

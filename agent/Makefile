@@ -7,8 +7,8 @@ LDFLAGS = $(shell pkg-config --libs protobuf grpc++) -pthread
 
 TARGET = agent
 
-SRCS = src/agent.cpp src/telemetry.pb.cc src/telemetry.grpc.pb.cc
-OBJS = src/agent.o src/telemetry.pb.o src/telemetry.grpc.pb.o
+SRCS = src/agent.cpp src/linux_collector.cpp src/telemetry.pb.cc src/telemetry.grpc.pb.cc
+OBJS = src/agent.o src/linux_collector.o src/telemetry.pb.o src/telemetry.grpc.pb.o
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDFLAGS)
